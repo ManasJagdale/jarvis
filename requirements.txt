@@ -1,0 +1,16 @@
+google-genai
+openai
+send2trash
+pyperclip
+psutil
+customtkinter
+pillow
+numpy
+requests
+beautifulsoup4
+google-auth-oauthlib
+google-api-python-client
+tzlocal
+PyMuPDF
+pytesseract
+openpyxl

@@ -1,0 +1,13 @@
+# Secrets -- NEVER commit these
+credentials.json
+token.json
+
+# Runtime data -- personal, not code
+jarvis_log.jsonl
+jarvis_memory.json
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
