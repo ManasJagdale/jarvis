@@ -92,3 +92,22 @@ MAX_ANALYZE_CHARS = 12000
 # Anything not listed here requires confirmation before running, every
 # time, even if you've run it before.
 TRUSTED_SCRIPTS: set[str] = set()
+
+# --- Remote web server settings (server.py) ---------------------------
+
+# Bind to localhost only. The server is reached from the phone/GUI via
+# Tailscale + `tailscale serve`, which forwards from the Tailscale
+# interface to this local port -- the server itself never needs to (and
+# should not) listen on 0.0.0.0 or any public interface directly.
+SERVER_HOST = "127.0.0.1"
+SERVER_PORT = 8756
+
+# Where the single ongoing conversation is persisted (list of messages),
+# so it survives a server restart. Separate from MEMORY_FILE above --
+# this is the actual chat history, not curated long-term facts.
+CONVERSATION_FILE = "jarvis_conversation.json"
+
+# How long (seconds) an unanswered confirmation prompt waits before it's
+# treated as cancelled. Prevents a stale "delete this file?" from firing
+# hours later if you got distracted and never answered it.
+CONFIRMATION_TIMEOUT_SECONDS = 300

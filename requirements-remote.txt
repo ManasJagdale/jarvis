@@ -1,0 +1,8 @@
+# Additional dependencies for remote web access, on top of Jarvis's
+# existing requirements.txt. Install with:
+#   pip install -r requirements-remote.txt
+
+fastapi
+uvicorn[standard]
+bcrypt
+websockets

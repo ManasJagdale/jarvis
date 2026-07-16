@@ -222,17 +222,42 @@ TOOL_SCHEMAS = [
     {
         "name": "delete_file",
         "description": (
-            "Delete a file. By default sends it to the Recycle Bin "
-            "(recoverable -- does NOT require confirmation). Only set "
-            "permanent=true if the user explicitly asks for permanent, "
-            "unrecoverable deletion (e.g. 'delete forever', 'permanently "
-            "delete', 'don't send it to the recycle bin') -- that mode "
-            "bypasses the Recycle Bin entirely and IS confirmation-gated."
+            "Delete a SINGLE FILE (not a folder -- use delete_folder for "
+            "that). By default sends it to the Recycle Bin (recoverable -- "
+            "does NOT require confirmation). Only set permanent=true if the "
+            "user explicitly asks for permanent, unrecoverable deletion "
+            "(e.g. 'delete forever', 'permanently delete', 'don't send it "
+            "to the recycle bin') -- that mode bypasses the Recycle Bin "
+            "entirely and IS confirmation-gated."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Path to the file to delete."},
+                "permanent": {
+                    "type": "boolean",
+                    "description": "If true, bypass the Recycle Bin. Defaults to false.",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "delete_folder",
+        "description": (
+            "Delete an entire folder and everything inside it. By default "
+            "sends it to the Recycle Bin (recoverable -- does NOT require "
+            "confirmation). Only set permanent=true if the user explicitly "
+            "asks for permanent, unrecoverable deletion (e.g. 'delete "
+            "forever', 'permanently delete', 'don't send it to the recycle "
+            "bin') -- that mode bypasses the Recycle Bin entirely and IS "
+            "confirmation-gated. Use this instead of delete_file whenever "
+            "the target is a folder/directory, not a single file."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Path to the folder to delete."},
                 "permanent": {
                     "type": "boolean",
                     "description": "If true, bypass the Recycle Bin. Defaults to false.",
@@ -783,6 +808,11 @@ def delete_file(path: str, permanent: bool = False) -> str:
     """
     if not os.path.exists(path):
         return f"Error: the path '{path}' does not exist."
+    if os.path.isdir(path):
+        return (
+            f"Error: '{path}' is a folder, not a file. Use the "
+            f"delete_folder tool instead."
+        )
     if not os.path.isfile(path):
         return f"Error: '{path}' is not a file."
 
@@ -800,6 +830,38 @@ def delete_file(path: str, permanent: bool = False) -> str:
     except Exception as exc:  # noqa: BLE001 - send2trash raises various OS-specific errors
         return f"Error sending '{path}' to the Recycle Bin: {exc}"
     return f"Sent '{path}' to the Recycle Bin (recoverable)."
+
+
+def delete_folder(path: str, permanent: bool = False) -> str:
+    """
+    Delete an entire folder and its contents. Default: send to Recycle Bin
+    (recoverable, via send2trash which handles folders natively). If
+    permanent=True: bypass the bin via shutil.rmtree (not recoverable).
+    Whether this needs confirmation is decided in main.py, based on the
+    `permanent` flag -- not decided here.
+    """
+    if not os.path.exists(path):
+        return f"Error: the path '{path}' does not exist."
+    if not os.path.isdir(path):
+        return (
+            f"Error: '{path}' is not a folder. Use the delete_file tool "
+            f"instead."
+        )
+
+    if permanent:
+        try:
+            shutil.rmtree(path)
+        except PermissionError:
+            return f"Error: permission denied deleting '{path}'."
+        except OSError as exc:
+            return f"Error permanently deleting '{path}': {exc}"
+        return f"Permanently deleted folder '{path}' (bypassed Recycle Bin -- not recoverable)."
+
+    try:
+        send2trash.send2trash(path)
+    except Exception as exc:  # noqa: BLE001 - send2trash raises various OS-specific errors
+        return f"Error sending folder '{path}' to the Recycle Bin: {exc}"
+    return f"Sent folder '{path}' to the Recycle Bin (recoverable)."
 
 
 def get_current_datetime() -> str:
@@ -1022,6 +1084,7 @@ TOOL_REGISTRY = {
     "open_path_or_url": open_path_or_url,
     "copy_file": copy_file,
     "delete_file": delete_file,
+    "delete_folder": delete_folder,
     "get_current_datetime": get_current_datetime,
     "read_clipboard": read_clipboard,
     "write_clipboard": write_clipboard,

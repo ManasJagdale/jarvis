@@ -1,22 +1,33 @@
 """
 jarvis_core.py
 
-The agent loop logic, extracted out of main.py so both the CLI (main.py)
-and the desktop GUI (gui.py) can share it without duplicating code.
+The agent loop logic, extracted out of main.py so both the CLI (main.py),
+the desktop GUI (gui.py), and now the remote web server (server.py) can
+share it without duplicating code.
 
 A caller only has to supply:
   - an LLMClient instance (e.g. GeminiClient())
   - confirm_fn(description: str) -> bool, used to gate destructive tool
     calls. main.py passes the terminal-based confirm_action from
-    confirm.py; gui.py passes a Tkinter-dialog-based one. This module
+    confirm.py; server.py passes a WebSocket-based one that waits for a
+    Confirm/Cancel tap from the browser (with a timeout). This module
     doesn't care which -- that's the whole point of the swap.
   - optionally, on_tool_start/on_tool_end callbacks, so a UI can show
     "Running list_files..." instead of just freezing while a tool runs.
+  - optionally, a stop_event (threading.Event) -- if it gets set while a
+    turn is running, the loop bails out at the next safe checkpoint
+    (before the next LLM call, and before each queued tool call) rather
+    than running to completion. NOTE: this is cooperative cancellation
+    only -- a tool call already in progress (e.g. a hung run_script or
+    fetch_url) will still run to completion; there's no way to kill a
+    blocking call from the outside without deeper changes to each tool.
+    main.py doesn't pass a stop_event and behaves exactly as before.
 
 Nothing here is Gemini-specific or Tkinter-specific.
 """
 
 import os
+import threading
 from typing import Callable, Optional
 
 import memory
@@ -34,6 +45,9 @@ ALWAYS_CONFIRM_TOOLS = {
     "edit_excel_cells",
     "edit_file_text",
 }
+
+STOPPED_MESSAGE = "Stopped by user."
+
 
 def _windows_username() -> str:
     return os.environ.get("USERNAME") or os.environ.get("USER") or "<unknown>"
@@ -188,13 +202,31 @@ def run_turn(
     confirm_fn: Callable[[str], bool],
     on_tool_start: Optional[Callable[[str, dict], None]] = None,
     on_tool_end: Optional[Callable[[str, str], None]] = None,
+    stop_event: Optional[threading.Event] = None,
+    on_assistant_text: Optional[Callable[[str], None]] = None,
 ) -> str:
     """
     Handle one full user turn: call the LLM, execute any requested tools,
     feed results back, and repeat until the LLM gives a final text answer
     or we hit the max-iteration safety cap.
+
+    If stop_event is provided and gets set from another thread (e.g. the
+    web server handling a Stop button tap), the loop bails out at the
+    next checkpoint -- before starting another LLM call, and before each
+    individual queued tool call -- rather than running to completion.
+    A tool call already in flight when Stop is pressed still finishes
+    (see the module docstring); this is intentionally cooperative, not
+    forceful, cancellation.
     """
+
+    def stopped() -> bool:
+        return stop_event is not None and stop_event.is_set()
+
     for _iteration in range(MAX_TOOL_ITERATIONS):
+        if stopped():
+            messages.append({"role": "assistant", "content": STOPPED_MESSAGE})
+            return STOPPED_MESSAGE
+
         response = llm.generate(messages, TOOL_SCHEMAS, system_prompt=build_system_prompt())
 
         if not response.tool_calls:
@@ -210,7 +242,14 @@ def run_turn(
             }
         )
 
+        if response.text and on_assistant_text:
+            on_assistant_text(response.text)
+
         for call in response.tool_calls:
+            if stopped():
+                messages.append({"role": "tool", "name": call["name"], "content": STOPPED_MESSAGE})
+                return STOPPED_MESSAGE
+
             tool_result = execute_tool(
                 call["name"], call["args"], confirm_fn, on_tool_start, on_tool_end
             )
